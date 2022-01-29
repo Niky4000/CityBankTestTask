@@ -54,6 +54,10 @@ public abstract class Subscriber implements PriceProcessor {
 						Double lastValue = rateValue.get(currentCcyPair).get(); // If we take this value earlie outside of synchonized section, we may take old value and it may coincide with the current value. We'll get the wrong result in this case and may miss the last rate value.
 						if (lastValue.equals(currentRate)) { // 5) ONLY LAST PRICE for each ccyPair matters for subscribers. I.e. if a slow subscriber is not coping with updates for EURUSD - it is only important to deliver the latest rate.
 							ccyPairSet.remove(currentCcyPair);
+							if (ccyPairSet.isEmpty()) { // If we don't check it, other thread may be finished and we'll miss the last rate.
+								workIsInProgress.set(false);
+								break; // If we take all the values, current thread will be finished.
+							}
 						}
 					}
 				}
