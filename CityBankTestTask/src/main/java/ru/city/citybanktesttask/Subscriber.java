@@ -36,34 +36,36 @@ public abstract class Subscriber implements PriceProcessor {
 		}
 		Double currentRate;
 		if (!workIsInProgress.getAndSet(true)) {
-			try {
-				while (true) {
-					String currentCcyPair;
-					synchronized (ccyPairSet) {
-						if (!ccyPairSet.isEmpty()) {
-							currentCcyPair = ccyPairSet.iterator().next(); // Iterator is not thread safe, we'll synchronize it.
-						} else {
+
+			while (true) {
+				String currentCcyPair;
+				synchronized (ccyPairSet) {
+					if (!ccyPairSet.isEmpty()) {
+						currentCcyPair = ccyPairSet.iterator().next(); // Iterator is not thread safe, we'll synchronize it.
+					} else {
+						workIsInProgress.set(false);
+						break; // If we take all the values, current thread will be finished.
+					}
+				}
+				currentRate = rateValue.get(currentCcyPair).get();
+				try {
+					doSomeWork(currentRate, getWorkingTime());  // Let's assume that we are doing some operations that may throw some exceptions.
+				} finally {
+					workIsInProgress.set(false);
+				}
+				printTheReport(currentCcyPair, currentRate);
+				synchronized (ccyPairSet) {
+					Double lastValue = rateValue.get(currentCcyPair).get(); // If we take this value earlie outside of synchonized section, we may take old value and it may coincide with the current value. We'll get the wrong result in this case and may miss the last rate value.
+					if (lastValue.equals(currentRate)) { // 5) ONLY LAST PRICE for each ccyPair matters for subscribers. I.e. if a slow subscriber is not coping with updates for EURUSD - it is only important to deliver the latest rate.
+						ccyPairSet.remove(currentCcyPair);
+						if (ccyPairSet.isEmpty()) { // If we don't check it, other thread may be finished and we'll miss the last rate.
 							workIsInProgress.set(false);
 							break; // If we take all the values, current thread will be finished.
 						}
 					}
-					currentRate = rateValue.get(currentCcyPair).get();
-					doSomeWork(currentRate, getWorkingTime());  // Let's assume that we are doing some operations that may throw some exceptions.
-					printTheReport(currentCcyPair, currentRate);
-					synchronized (ccyPairSet) {
-						Double lastValue = rateValue.get(currentCcyPair).get(); // If we take this value earlie outside of synchonized section, we may take old value and it may coincide with the current value. We'll get the wrong result in this case and may miss the last rate value.
-						if (lastValue.equals(currentRate)) { // 5) ONLY LAST PRICE for each ccyPair matters for subscribers. I.e. if a slow subscriber is not coping with updates for EURUSD - it is only important to deliver the latest rate.
-							ccyPairSet.remove(currentCcyPair);
-							if (ccyPairSet.isEmpty()) { // If we don't check it, other thread may be finished and we'll miss the last rate.
-								workIsInProgress.set(false);
-								break; // If we take all the values, current thread will be finished.
-							}
-						}
-					}
 				}
-			} finally {
-				workIsInProgress.set(false);
 			}
+
 		}
 	}
 
