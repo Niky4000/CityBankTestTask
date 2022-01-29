@@ -29,14 +29,16 @@ public abstract class Subscriber implements PriceProcessor {
 
 	@Override
 	public void onPrice(String ccyPair, double rate) {
+		boolean isAbleToExecute;
 		synchronized (ccyPairSet) { // This matters in concept of happens before.
 			ccyPairSet.add(ccyPair); // We should synchronize these variables because in other case we are able to miss last values.
 			rateValue.putIfAbsent(ccyPair, new AtomicReference<>());
 			rateValue.get(ccyPair).set(rate); // 6) It is important not to miss rarely changing prices. I.e. it is important to deliver EURRUB if it ticks once per day but you may skip some EURUSD ticking every second
+			isAbleToExecute = !workIsInProgress.getAndSet(true);
 		}
-		Double currentRate;
-		if (!workIsInProgress.getAndSet(true)) {
+		if (isAbleToExecute) {
 			while (true) {
+				Double currentRate;
 				String currentCcyPair;
 				synchronized (ccyPairSet) {
 					if (!ccyPairSet.isEmpty()) {
