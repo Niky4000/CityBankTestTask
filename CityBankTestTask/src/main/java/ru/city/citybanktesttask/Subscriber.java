@@ -36,7 +36,6 @@ public abstract class Subscriber implements PriceProcessor {
 		}
 		Double currentRate;
 		if (!workIsInProgress.getAndSet(true)) {
-
 			while (true) {
 				String currentCcyPair;
 				synchronized (ccyPairSet) {
@@ -65,7 +64,6 @@ public abstract class Subscriber implements PriceProcessor {
 					}
 				}
 			}
-
 		}
 	}
 
