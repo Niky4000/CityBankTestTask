@@ -21,6 +21,8 @@ public abstract class Subscriber implements PriceProcessor {
 	final ConcurrentHashMap<String, AtomicReference<Double>> rateValue = new ConcurrentHashMap<>();
 	final Set<String> ccyPairSet = new LinkedHashSet<>();
 	final Consumer<ReportBean> dataConsumer;
+	final AtomicBoolean dataWasChanged = new AtomicBoolean(false);
+	volatile Thread thread;
 
 	public Subscriber(String name, Consumer<ReportBean> dataConsumer) {
 		this.name = name;
@@ -29,43 +31,52 @@ public abstract class Subscriber implements PriceProcessor {
 
 	@Override
 	public void onPrice(String ccyPair, double rate) {
-		boolean isAbleToExecute;
+		System.out.println(ccyPair + " " + rate + " was got!");
+		dataWasChanged.set(true);
 		synchronized (ccyPairSet) { // This matters in concept of happens before.
 			ccyPairSet.add(ccyPair); // We should synchronize these variables because in other case we are able to miss last values.
 			rateValue.putIfAbsent(ccyPair, new AtomicReference<>());
 			rateValue.get(ccyPair).set(rate); // 6) It is important not to miss rarely changing prices. I.e. it is important to deliver EURRUB if it ticks once per day but you may skip some EURUSD ticking every second
-			isAbleToExecute = !workIsInProgress.getAndSet(true);
+			dataWasChanged.set(true);
 		}
-		if (isAbleToExecute) {
-			while (true) {
-				Double currentRate;
-				String currentCcyPair;
-				synchronized (ccyPairSet) {
-					if (!ccyPairSet.isEmpty()) {
-						currentCcyPair = ccyPairSet.iterator().next(); // Iterator is not thread safe, we'll synchronize it.
-					} else {
-						workIsInProgress.set(false);
-						break; // If we take all the values, current thread will be finished.
-					}
-				}
-				currentRate = rateValue.get(currentCcyPair).get();
-				try {
-					doSomeWork(currentRate, getWorkingTime());  // Let's assume that we are doing some operations that may throw some exceptions.
-				} finally {
-					workIsInProgress.set(false);
-				}
-				printTheReport(currentCcyPair, currentRate);
-				synchronized (ccyPairSet) {
-					Double lastValue = rateValue.get(currentCcyPair).get(); // If we take this value earlie outside of synchonized section, we may take old value and it may coincide with the current value. We'll get the wrong result in this case and may miss the last rate value.
-					if (lastValue.equals(currentRate)) { // 5) ONLY LAST PRICE for each ccyPair matters for subscribers. I.e. if a slow subscriber is not coping with updates for EURUSD - it is only important to deliver the latest rate.
-						ccyPairSet.remove(currentCcyPair);
-						if (ccyPairSet.isEmpty()) { // If we don't check it, other thread may be finished and we'll miss the last rate.
+		System.out.println(ccyPair + " " + rate + " was put to the Map!");
+		dataWasChanged.set(true);
+		if (!workIsInProgress.getAndSet(true)) {
+			thread = new Thread(() -> {
+				while (!dataWasChanged.compareAndSet(false, false)) {
+					dataWasChanged.set(false);
+					while (true) {
+						Double currentRate;
+						String currentCcyPair;
+						synchronized (ccyPairSet) {
+							if (!ccyPairSet.isEmpty()) {
+								currentCcyPair = ccyPairSet.iterator().next(); // Iterator is not thread safe, we'll synchronize it.
+								currentRate = rateValue.get(currentCcyPair).get();
+							} else {
+								workIsInProgress.set(false);
+								break; // If we take all the values, current thread will be finished.
+							}
+						}
+						try {
+							doSomeWork(currentRate, getWorkingTime());  // Let's assume that we are doing some operations that may throw some exceptions.
+						} finally {
 							workIsInProgress.set(false);
-							break; // If we take all the values, current thread will be finished.
+						}
+						printTheReport(currentCcyPair, currentRate);
+						synchronized (ccyPairSet) {
+							Double lastValue = rateValue.get(currentCcyPair).get(); // If we take this value earlie outside of synchonized section, we may take old value and it may coincide with the current value. We'll get the wrong result in this case and may miss the last rate value.
+							if (lastValue.equals(currentRate)) { // 5) ONLY LAST PRICE for each ccyPair matters for subscribers. I.e. if a slow subscriber is not coping with updates for EURUSD - it is only important to deliver the latest rate.
+								ccyPairSet.remove(currentCcyPair);
+								if (ccyPairSet.isEmpty()) { // If we don't check it, other thread may be finished and we'll miss the last rate.
+									workIsInProgress.set(false);
+									break; // If we take all the values, current thread will be finished.
+								}
+							}
 						}
 					}
 				}
-			}
+			});
+			thread.start();
 		}
 	}
 
@@ -92,6 +103,10 @@ public abstract class Subscriber implements PriceProcessor {
 	}
 
 	protected abstract int getWorkingTime();
+
+	public Thread getThread() {
+		return thread;
+	}
 
 	@Override
 	public int hashCode() {
