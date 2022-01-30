@@ -15,15 +15,15 @@ import ru.city.citybanktesttask.bean.ReportBean;
  */
 public class PriceProcessorTest {
 
-	private static final int AMOUNT_OF_FAST_SUBSCRIBERS = 8;
-	private static final int AMOUNT_OF_SLOW_SUBSCRIBERS = 0;
+	private static final int AMOUNT_OF_FAST_SUBSCRIBERS = 4;
+	private static final int AMOUNT_OF_SLOW_SUBSCRIBERS = 4;
 
 	private static final List<ReportBean> reportBeanListForFastSubscribers = Collections.synchronizedList(new ArrayList<>());
 	private static final List<ReportBean> reportBeanListForSlowSubscribers = Collections.synchronizedList(new ArrayList<>());
 
 	@Test
 	public void test() {
-		for (int j = 0; j < 100; j++) {
+		for (int j = 0; j < 10; j++) {
 			PriceProcessorTest priceProcessorTest = new PriceProcessorTest();
 			PriceThrottler priceThrottler = new PriceThrottlerTest();
 			List<String> fastSubscribersNameList = new ArrayList<>(AMOUNT_OF_FAST_SUBSCRIBERS);
